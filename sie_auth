@@ -1,0 +1,128 @@
+#!/bin/sh /etc/rc.common
+START=99
+STOP=15
+
+# Your student number like '2020508101'
+SIE8021X_ACCOUNT='2020508101'
+# Your campus network password
+SIE8021X_PASSWORD='12345678'
+WAN_ETH='eth0'
+
+IMC_PORTAL_SERVER_IP='59.73.16.70'
+# Your student number like '2020508101'
+IMC_PORTAL_ACCOUNT='2020508101'
+# Please get this string from a real web request
+IMC_PORTAL_PASSWORD='abcdefg'
+IMC_PORTAL_UA='Mozilla/5.0 (Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.63 Safari/537.36'
+
+LOG_PATH='/var/log/sie_auth'
+LOG_SIECLIENT="${LOG_PATH}/sie8021xclient"
+LOG_COMMON="${LOG_PATH}/common"
+LOG_STDOUT=false
+
+NETWORK_CHECK_URL='baidu.com'
+
+print_log() {
+    date_str=$(date "+%Y-%m-%d %H:%M:%S")
+    if ${LOG_STDOUT}; then
+        echo "[${date_str}] $2"
+    fi
+
+    case $1 in
+        'client')
+            echo "[${date_str}] $2" >> ${LOG_SIECLIENT}
+            ;;
+        'common')
+            echo "[${date_str}] $2" >> ${LOG_COMMON}
+            ;;
+    esac
+}
+
+sieclient_start() {
+    print_log 'client' 'Start sie8021xclient'
+    nohup sie-client ${SIE8021X_ACCOUNT}@s.sie ${SIE8021X_PASSWORD} ${WAN_ETH} 2>&1 | tee ${LOG_SIECLIENT} > /dev/null &
+}
+ 
+sieclient_stop() {
+    print_log 'client' 'Stop sie8021xclient'
+    ps | grep sie-client | awk '{print $1}' | sed -n '1p' | xargs kill -9
+}
+
+sieclient_restart() {
+    sieclient_stop
+    sieclient_start
+}
+
+check_sieclient() {
+    if [ $(ps | grep sie-client | grep -v 'grep' | wc -l) == 0 ]; then
+        sieclient_start
+    fi
+}
+
+imc_portal_auth() {
+    print_log 'client' ''
+
+    for auth_times in $(seq 1 10); do
+        print_log 'client' "Try iMC Portal auth: [${auth_times}]"
+        if ! ping -c 1 -w 1 ${NETWORK_CHECK_URL} >/dev/null; then
+            nohup curl "http://${IMC_PORTAL_SERVER_IP}/portal/pws?t=li" \
+              -H 'Proxy-Connection: keep-alive' \
+              -H 'Accept: text/plain, */*; q=0.01' \
+              -H 'X-Requested-With: XMLHttpRequest' \
+              -H "User-Agent: ${IMC_PORTAL_UA}" \
+              -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8' \
+              -H "Origin: http://${IMC_PORTAL_SERVER_IP}" \
+              -H "Referer: http://${IMC_PORTAL_SERVER_IP}/portal/index_default.jsp" \
+              -H 'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8' \
+              --data-raw "userName=${IMC_PORTAL_ACCOUNT}%40s.month&userPwd=${IMC_PORTAL_PASSWORD}&userDynamicPwd=&userDynamicPwdd=&serviceType=s.month&userurl=&userip=&basip=&language=Chinese&usermac=null&wlannasid=&wlanssid=&entrance=null&loginVerifyCode=&userDynamicPwddd=&customPageId=1&pwdMode=0&portalProxyIP=${IMC_PORTAL_SERVER_IP}&portalProxyPort=50200&dcPwdNeedEncrypt=1&assignIpType=0&appRootUrl=http%3A%2F%2F${IMC_PORTAL_SERVER_IP}%2Fportal%2F&manualUrl=&manualUrlEncryptKey=" \
+              --insecure -s --connect-timeout 2 --max-time 2 2>&1 > /dev/null
+              sleep 1
+        else
+            print_log 'client' 'Already connected to the Internet'
+            break
+        fi
+    done
+}
+
+init_log_file() {
+    if [ ! -f $1 ]; then
+        touch $1
+	wait
+    fi
+    echo '' > $1
+}
+
+check_network() {
+    while true; do
+        check_sieclient
+        print_log 'common' ''
+        print_log 'common' 'Check network'
+        if ! ping -c 1 -w 1 ${NETWORK_CHECK_URL} >/dev/null; then
+            print_log 'common' 'Failed'
+            imc_portal_auth
+        else
+            print_log 'common' 'Success'
+        fi
+        sleep 10
+    done
+}
+
+start() {
+    echo 'Start SIE Auth'
+    mkdir -p ${LOG_PATH}
+    init_log_file ${LOG_SIECLIENT}
+    init_log_file ${LOG_COMMON}
+
+    check_network &
+}
+
+stop() {
+    echo 'Stop SIE Auth'
+    ps | grep -E 'sie-client|sie_auth' | grep -v 'grep' | awk '{print $1}' | xargs kill -9
+}
+
+restart() {
+    ps | grep 'sie-client' | grep -v 'grep' | awk '{print $1}' | xargs kill -9
+    start
+}
+

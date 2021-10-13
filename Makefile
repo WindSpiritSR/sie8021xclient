@@ -3,7 +3,8 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=sie8021xclient
 PKG_RELEASE:=testing
 PKG_VERSION:=2.0
-PKG_SOURCE:=https://github.com/WindSpiritSR/sie8021xclient/archive/refs/heads/master.tar.gz
+PKG_SOURCE_URL:=https://github.com/WindSpiritSR/sie8021xclient/archive/refs/heads
+PKG_SOURCE:=master.tar.gz
 PKG_FIXUP:=autoreconf
 
 include $(INCLUDE_DIR)/package.mk
